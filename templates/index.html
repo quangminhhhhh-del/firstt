@@ -401,12 +401,23 @@ async function score(){
     years_in_business: years_in_business.value
   };
 
-  try{
-    const res = await fetch("/score", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(payload)
+  try {
+    const res = await fetch("https://sme-ai-demo.onrender.com/score", {
+        method: "POST",
+        mode: "cors",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
     });
+
+    const data = await res.json();
+    console.log(data);
+} catch (error) {
+    console.error(error);
+}
+
+
 
     if(!res.ok){
       const text = await res.text();
@@ -468,7 +479,7 @@ async function score(){
     btn.disabled = false;
     btn.innerText = " Chấm điểm tín dụng";
   }
-}
+
 </script>
 
 </body>

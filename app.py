@@ -1,11 +1,15 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, render_template
+from flask_cors import CORS
+
 import pandas as pd
 import joblib
 import numpy as np
 
 app = Flask(__name__)
+CORS(app)
 
-# ===================== LOAD MODELS =====================
+
+#  LOAD MODELS 
 rf_model = joblib.load("rf_model.pkl")
 feature_columns = joblib.load("feature_columns.pkl")
 
@@ -306,12 +310,32 @@ def explain_ai(d: dict) -> tuple[list[dict], list[str], str]:
 
 
 # ROUTES 
-from flask import render_template
+from flask import render_template, request, jsonify
 
 @app.route("/")
 def home():
     return render_template("index.html")
-    # ===== SANITIZE INPUT: luôn hợp lệ =====
+# route score
+@app.route("/score", methods=["POST"])
+def score_api():
+    payload = request.get_json()  # nhận dữ liệu từ frontend
+
+    df = build_feature_dataframe(payload)
+credit_score, tier = calculate_credit_score(df)
+explanations = generate_explanations(df)
+recommendations = generate_recommendations(df)
+
+
+    #  KẾT THÚC 
+
+    return jsonify({
+        "credit_score": credit_score,
+        "tier": tier,
+        "explanations": explanations,
+        "recommendations": recommendations
+    })
+
+    # SANITIZE INPUT: luôn hợp lệ 
     data = {
         "monthly_revenue": _clamp(_to_float(payload.get("monthly_revenue"), 0), 0, 10_000_000_000),
         "order_volume_30d": _clamp(_to_float(payload.get("order_volume_30d"), 0), 0, 10_000_000),
@@ -323,7 +347,7 @@ def home():
 
     df = build_feature_df(data)
 
-    # ===== PREDICT (primary) + fallback (guarantee) =====
+    #  PREDICT (primary) + fallback (guarantee) 
     model_source = "rf_model"
     try:
         risk_rf = float(rf_model.predict_proba(df)[0][1])
@@ -355,7 +379,6 @@ def home():
         "recommendations": recommendations,
         "sanitized_input": data
     })
-
 
 if __name__ == "__main__":
    app.run(host="0.0.0.0", port=5000, debug=True)
