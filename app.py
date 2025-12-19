@@ -305,16 +305,12 @@ def explain_ai(d: dict) -> tuple[list[dict], list[str], str]:
     return exps[:6], recs[:4], summary
 
 
-# ===================== ROUTES =====================
+# ROUTES 
+from flask import render_template
+
 @app.route("/")
 def home():
-    return send_file("index.html")
-
-
-@app.route("/score", methods=["POST"])
-def score():
-    payload = request.get_json(force=True) or {}
-
+    return render_template("index.html")
     # ===== SANITIZE INPUT: luôn hợp lệ =====
     data = {
         "monthly_revenue": _clamp(_to_float(payload.get("monthly_revenue"), 0), 0, 10_000_000_000),
