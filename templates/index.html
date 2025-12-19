@@ -418,7 +418,6 @@ async function score(){
 }
 
 
-
     if(!res.ok){
       const text = await res.text();
       throw new Error(text || "Server error");

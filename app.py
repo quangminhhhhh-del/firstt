@@ -20,7 +20,7 @@ except Exception:
     logit_model = None
 
 
-# ===================== HELPERS =====================
+#  HELPERS 
 def _to_float(x, default=0.0) -> float:
     """Robust float parsing: accepts None, '', '  ', strings, numbers."""
     try:
@@ -114,7 +114,7 @@ def fallback_risk_estimate(d: dict) -> float:
     rating_score = _clamp((4.6 - rating) / 3.0, 0, 1)   # rating thấp -> tăng rủi ro
     age_score = _clamp((3 - years) / 3.0, 0, 1)         # hoạt động ngắn -> tăng rủi ro
 
-    # trọng số (có thể giải thích dễ)
+    # trọng số 
     risk = (
         0.22 * rev_score +
         0.14 * order_score +
@@ -293,7 +293,7 @@ def explain_ai(d: dict) -> tuple[list[dict], list[str], str]:
             "detail": f"Hoạt động {years:.1f} năm → có độ bền, giảm rủi ro “mở ra đóng vào”."
         })
 
-    # Summary (1-2 câu)
+    
     neg = sum(1 for e in exps if e["impact"] == "Tiêu cực")
     if neg >= 3:
         summary = "Doanh nghiệp có nhiều tín hiệu rủi ro; nên cấp hạn mức thấp hoặc yêu cầu thêm chứng từ/điều kiện kiểm soát."
@@ -305,7 +305,6 @@ def explain_ai(d: dict) -> tuple[list[dict], list[str], str]:
     # Loại bỏ trùng khuyến nghị
     recs = list(dict.fromkeys(recs))
 
-    # Trả 6 ý (đủ chi tiết), và tối đa 4 khuyến nghị
     return exps[:6], recs[:4], summary
 
 
@@ -315,25 +314,13 @@ from flask import render_template, request, jsonify
 @app.route("/")
 def home():
     return render_template("index.html")
+
+
 # route score
 @app.route("/score", methods=["POST"])
 def score_api():
-    payload = request.get_json()  # nhận dữ liệu từ frontend
 
-    df = build_feature_dataframe(payload)
-credit_score, tier = calculate_credit_score(df)
-explanations = generate_explanations(df)
-recommendations = generate_recommendations(df)
-
-
-    #  KẾT THÚC 
-
-    return jsonify({
-        "credit_score": credit_score,
-        "tier": tier,
-        "explanations": explanations,
-        "recommendations": recommendations
-    })
+    payload = request.get_json(silent=True) or {}  # nhận dữ liệu từ frontend
 
     # SANITIZE INPUT: luôn hợp lệ 
     data = {
@@ -380,7 +367,6 @@ recommendations = generate_recommendations(df)
         "sanitized_input": data
     })
 
+
 if __name__ == "__main__":
    app.run(host="0.0.0.0", port=5000, debug=True)
-
-
