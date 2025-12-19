@@ -359,8 +359,10 @@ button:disabled{opacity:.7;cursor:not-allowed;}
   </div>
 
 <script>
+const $ = (id) => document.getElementById(id);
+
 function setError(msg){
-  const box = document.getElementById("errorBox");
+  const box = $("errorBox");
   if(!msg){
     box.style.display = "none";
     box.innerText = "";
@@ -371,12 +373,12 @@ function setError(msg){
 }
 
 function fillSample(){
-  monthly_revenue.value = 60000;
-  order_volume_30d.value = 900;
-  refund_rate.value = 8.5;
-  cashflow_volatility.value = 0.45;
-  platform_rating.value = 4.1;
-  years_in_business.value = 2;
+  $("monthly_revenue").value = 60000;
+  $("order_volume_30d").value = 900;
+  $("refund_rate").value = 8.5;
+  $("cashflow_volatility").value = 0.45;
+  $("platform_rating").value = 4.1;
+  $("years_in_business").value = 2;
   setError("");
 }
 
@@ -386,99 +388,144 @@ function impactLabel(impact){
   return "Trung tính •";
 }
 
-async function score(){
-  setError("");
-  const btn = document.getElementById("btnScore");
-  btn.disabled = true;
-  btn.innerText = "⏳ Đang chấm điểm...";
-
-  const payload = {
-    monthly_revenue: monthly_revenue.value,
-    order_volume_30d: order_volume_30d.value,
-    refund_rate: refund_rate.value,
-    cashflow_volatility: cashflow_volatility.value,
-    platform_rating: platform_rating.value,
-    years_in_business: years_in_business.value
-  };
-
-  try {
-    const res = await fetch("https://sme-ai-demo.onrender.com/score", {
-        method: "POST",
-        mode: "cors",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload)
-    });
-
-    const data = await res.json();
-    console.log(data);
-} catch (error) {
-    console.error(error);
+function toNumber(val){
+  if(val === null || val === undefined) return null;
+  const s = String(val).trim().replace(",", ".");
+  if(s === "") return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
 }
 
+function renderResult(data){
+  $("result").style.display = "block";
 
-    if(!res.ok){
-      const text = await res.text();
-      throw new Error(text || "Server error");
-    }
+  const score = (data.credit_score ?? data.score ?? null);
 
-    const data = await res.json();
+  $("scoreValue").innerText = (score === null || score === undefined)
+    ? "—"
+    : `Credit Score: ${Number(score).toFixed(1)} / 100`;
 
-    document.getElementById("result").style.display = "block";
+  $("tierValue").innerText = data.tier ? `Xếp hạng: ${data.tier}` : "—";
 
-    document.getElementById("scoreValue").innerText =
-      `Credit Score: ${data.credit_score} / 100`;
-
-    document.getElementById("tierValue").innerText =
-      `Xếp hạng: ${data.tier}`;
-
-    const meta = [];
+  const meta = [];
+  if(data.risk_prob_rf !== undefined && data.risk_prob_rf !== null){
     meta.push(`PD (RF): ${data.risk_prob_rf}`);
-    if(data.risk_prob_logit !== null && data.risk_prob_logit !== undefined){
-      meta.push(`PD (Logit): ${data.risk_prob_logit}`);
-    }
+  }
+  if(data.risk_prob_logit !== null && data.risk_prob_logit !== undefined){
+    meta.push(`PD (Logit): ${data.risk_prob_logit}`);
+  }
+  if(data.model_source){
     meta.push(`Mode: ${data.model_source}`);
-    document.getElementById("metaValue").innerText = meta.join("  •  ");
+  }
+  $("metaValue").innerText = meta.length ? meta.join("  •  ") : "—";
 
-    document.getElementById("summaryValue").innerText = data.summary || "—";
+  $("summaryValue").innerText = data.summary || "—";
 
-    // progress bar
-    const w = Math.max(0, Math.min(100, Number(data.credit_score || 0)));
-    document.getElementById("scoreBar").style.width = w + "%";
+  // progress bar
+  const w = Math.max(0, Math.min(100, Number(score || 0)));
+  $("scoreBar").style.width = w + "%";
 
-    // explanations
-    const expWrap = document.getElementById("expList");
-    expWrap.innerHTML = "";
-    (data.explanations || []).forEach(e => {
+  // explanations
+  const expWrap = $("expList");
+  expWrap.innerHTML = "";
+  (data.explanations || []).forEach(e => {
+    // Hỗ trợ cả trường hợp backend trả string thay vì object
+    if(typeof e === "string"){
       const div = document.createElement("div");
       div.className = "expItem";
       div.innerHTML = `
         <div class="expHead">
-          <div class="expTitle">${e.title}</div>
-          <div class="impact">${impactLabel(e.impact)}</div>
+          <div class="expTitle">Giải thích</div>
+          <div class="impact">${impactLabel("Trung tính")}</div>
         </div>
-        <div class="detail">${e.detail}</div>
+        <div class="detail">${e}</div>
       `;
       expWrap.appendChild(div);
+      return;
+    }
+
+    const div = document.createElement("div");
+    div.className = "expItem";
+    div.innerHTML = `
+      <div class="expHead">
+        <div class="expTitle">${e.title ?? "Yếu tố"}</div>
+        <div class="impact">${impactLabel(e.impact ?? "Trung tính")}</div>
+      </div>
+      <div class="detail">${e.detail ?? ""}</div>
+    `;
+    expWrap.appendChild(div);
+  });
+
+  // recommendations
+  const rec = $("recList");
+  rec.innerHTML = "";
+  (data.recommendations || []).forEach(r => {
+    const li = document.createElement("li");
+    li.innerText = r;
+    rec.appendChild(li);
+  });
+}
+
+async function score(){
+  setError("");
+  const btn = $("btnScore");
+  btn.disabled = true;
+  btn.innerText = "⏳ Đang chấm điểm...";
+
+  const payload = {
+    monthly_revenue: toNumber($("monthly_revenue").value),
+    order_volume_30d: toNumber($("order_volume_30d").value),
+    refund_rate: toNumber($("refund_rate").value),
+    cashflow_volatility: toNumber($("cashflow_volatility").value),
+    platform_rating: toNumber($("platform_rating").value),
+    years_in_business: toNumber($("years_in_business").value)
+  };
+
+  const hasAny = Object.values(payload).some(v => v !== null);
+  if(!hasAny){
+    setError("Bạn chưa nhập dữ liệu. Hãy điền mẫu hoặc nhập tối thiểu 1 chỉ số.");
+    btn.disabled = false;
+    btn.innerText = " Chấm điểm tín dụng";
+    return;
+  }
+
+  // Gọi cùng domain để chạy được cả local + Render
+  const apiUrl = `${window.location.origin}/score`;
+
+  try{
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)
     });
 
-    // recommendations
-    const rec = document.getElementById("recList");
-    rec.innerHTML = "";
-    (data.recommendations || []).forEach(r => {
-      const li = document.createElement("li");
-      li.innerText = r;
-      rec.appendChild(li);
-    });
+    const text = await res.text();
+
+    let data;
+    try{
+      data = JSON.parse(text);
+    }catch{
+      const snippet = text ? text.slice(0, 300) : "";
+      throw new Error(snippet || "Server trả về dữ liệu không hợp lệ (không phải JSON).");
+    }
+
+    if(!res.ok){
+      throw new Error(data?.error || data?.message || "Server error");
+    }
+    if(data.success === false || data.success === "false"){
+      throw new Error(data?.error || "Không chấm điểm được.");
+    }
+
+    renderResult(data);
 
   }catch(err){
-    setError("Không lấy được kết quả. Kiểm tra terminal Flask hoặc thử chạy lại. Chi tiết: " + err.message);
+    setError("Không lấy được kết quả. Chi tiết: " + (err?.message || err));
+    console.error(err);
   }finally{
     btn.disabled = false;
     btn.innerText = " Chấm điểm tín dụng";
   }
-
+}
 </script>
 
 </body>
