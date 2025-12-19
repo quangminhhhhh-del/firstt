@@ -6,6 +6,7 @@
 <title>AI Credit Scoring SMEs</title>
 
 <style>
+/* (GIỮ NGUYÊN CSS CỦA BẠN) */
 :root{
   --bg1:#e6f0ff;
   --bg2:#f6f8fb;
@@ -81,7 +82,7 @@ body{
 .form-grid{
   display:grid;
   grid-template-columns:1fr 1fr;
-  gap:18px 22px; /* CÁCH ĐỀU */
+  gap:18px 22px;
 }
 @media (max-width: 640px){
   .form-grid{grid-template-columns:1fr;}
@@ -408,8 +409,14 @@ function renderResult(data){
   $("tierValue").innerText = data.tier ? `Xếp hạng: ${data.tier}` : "—";
 
   const meta = [];
+  if(data.risk_prob_final !== undefined && data.risk_prob_final !== null){
+    meta.push(`PD (Final): ${data.risk_prob_final}`);
+  }
   if(data.risk_prob_rf !== undefined && data.risk_prob_rf !== null){
     meta.push(`PD (RF): ${data.risk_prob_rf}`);
+  }
+  if(data.risk_prob_fallback !== undefined && data.risk_prob_fallback !== null){
+    meta.push(`PD (Fallback): ${data.risk_prob_fallback}`);
   }
   if(data.risk_prob_logit !== null && data.risk_prob_logit !== undefined){
     meta.push(`PD (Logit): ${data.risk_prob_logit}`);
@@ -419,17 +426,18 @@ function renderResult(data){
   }
   $("metaValue").innerText = meta.length ? meta.join("  •  ") : "—";
 
-  $("summaryValue").innerText = data.summary || "—";
+  let summaryText = data.summary || "—";
+  if(Array.isArray(data.model_warnings) && data.model_warnings.length){
+    summaryText += "\n\n(Lưu ý hệ thống: " + data.model_warnings.join(" | ") + ")";
+  }
+  $("summaryValue").innerText = summaryText;
 
-  // progress bar
   const w = Math.max(0, Math.min(100, Number(score || 0)));
   $("scoreBar").style.width = w + "%";
 
-  // explanations
   const expWrap = $("expList");
   expWrap.innerHTML = "";
   (data.explanations || []).forEach(e => {
-    // Hỗ trợ cả trường hợp backend trả string thay vì object
     if(typeof e === "string"){
       const div = document.createElement("div");
       div.className = "expItem";
@@ -456,7 +464,6 @@ function renderResult(data){
     expWrap.appendChild(div);
   });
 
-  // recommendations
   const rec = $("recList");
   rec.innerHTML = "";
   (data.recommendations || []).forEach(r => {
@@ -468,6 +475,8 @@ function renderResult(data){
 
 async function score(){
   setError("");
+  $("result").style.display = "none"; // tránh giữ kết quả cũ khi request lỗi
+
   const btn = $("btnScore");
   btn.disabled = true;
   btn.innerText = "⏳ Đang chấm điểm...";
@@ -489,8 +498,7 @@ async function score(){
     return;
   }
 
-  // Gọi cùng domain để chạy được cả local + Render
-  const apiUrl = `${window.location.origin}/score`;
+  const apiUrl = "/score";
 
   try{
     const res = await fetch(apiUrl, {
@@ -509,11 +517,8 @@ async function score(){
       throw new Error(snippet || "Server trả về dữ liệu không hợp lệ (không phải JSON).");
     }
 
-    if(!res.ok){
+    if(!res.ok || data.success === false){
       throw new Error(data?.error || data?.message || "Server error");
-    }
-    if(data.success === false || data.success === "false"){
-      throw new Error(data?.error || "Không chấm điểm được.");
     }
 
     renderResult(data);
