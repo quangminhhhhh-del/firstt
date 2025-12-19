@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>AI Credit Scoring SMEs</title>
+
+<style>
+:root{
+  --bg1:#e6f0ff;
+  --bg2:#f6f8fb;
+  --brand:#1f3c88;
+  --brand2:#3a6ee8;
+  --text:#122033;
+  --muted:#5c6b80;
+  --card:#ffffff;
+  --stroke:#d7deea;
+  --shadow:0 14px 30px rgba(10, 25, 60, 0.10);
+  --radius:14px;
+}
+
+*{box-sizing:border-box;font-family:"Segoe UI", Arial, sans-serif;}
+body{
+  margin:0;
+  color:var(--text);
+  background: linear-gradient(120deg, var(--bg1), var(--bg2));
+}
+
+.header{
+  background: linear-gradient(135deg, var(--brand), var(--brand2));
+  color:#fff;
+  padding:26px 16px;
+  text-align:center;
+}
+.header h1{margin:0 0 6px;font-size:28px;letter-spacing:.2px;}
+.header p{margin:0;opacity:.95}
+
+.container{
+  max-width:980px;
+  margin:28px auto;
+  padding:0 16px 24px;
+}
+
+.grid{
+  display:grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap:22px;
+}
+@media (max-width: 900px){
+  .grid{grid-template-columns:1fr;}
+}
+
+.card{
+  background:var(--card);
+  border:1px solid rgba(215,222,234,.6);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  padding:22px;
+}
+
+.card h3{
+  margin:0 0 14px;
+  font-size:18px;
+  color:var(--brand);
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.badge{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  font-size:12px;
+  padding:6px 10px;
+  border-radius:999px;
+  background:rgba(31,60,136,.10);
+  color:var(--brand);
+  font-weight:600;
+}
+
+.form-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:18px 22px; /* CÁCH ĐỀU */
+}
+@media (max-width: 640px){
+  .form-grid{grid-template-columns:1fr;}
+}
+
+.field{
+  display:flex;
+  flex-direction:column;
+  gap:7px;
+}
+label{font-weight:650;}
+.help{font-size:12px;color:var(--muted);line-height:1.35;}
+
+input{
+  padding:12px 12px;
+  border-radius:10px;
+  border:1px solid var(--stroke);
+  outline:none;
+  font-size:14.5px;
+  transition: border .15s, box-shadow .15s;
+  background:#fff;
+}
+input:focus{
+  border-color: rgba(58,110,232,.65);
+  box-shadow: 0 0 0 4px rgba(58,110,232,.12);
+}
+
+.actions{
+  margin-top:16px;
+  display:flex;
+  gap:10px;
+}
+button{
+  flex:1;
+  padding:13px 14px;
+  border:none;
+  border-radius:12px;
+  background:linear-gradient(135deg, var(--brand), var(--brand2));
+  color:#fff;
+  font-weight:700;
+  cursor:pointer;
+  font-size:15px;
+  box-shadow:0 10px 22px rgba(31,60,136,.22);
+}
+button:active{transform: translateY(1px);}
+button.secondary{
+  background:#eef2fb;
+  color:var(--brand);
+  box-shadow:none;
+  border:1px solid rgba(31,60,136,.15);
+}
+button:disabled{opacity:.7;cursor:not-allowed;}
+
+.result{
+  display:none;
+  color:#fff;
+  background: linear-gradient(135deg, var(--brand), var(--brand2));
+  border-radius: var(--radius);
+  padding:22px;
+  box-shadow: var(--shadow);
+}
+
+.scoreRow{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:14px;
+  flex-wrap:wrap;
+}
+.score{
+  font-size:44px;
+  font-weight:850;
+  line-height:1;
+}
+.sub{
+  opacity:.95;
+  margin-top:8px;
+  font-size:14px;
+}
+.tierPill{
+  padding:8px 12px;
+  border-radius:999px;
+  font-weight:800;
+  background: rgba(255,255,255,.18);
+  border:1px solid rgba(255,255,255,.22);
+}
+
+.barWrap{
+  margin-top:14px;
+  background: rgba(255,255,255,.18);
+  border:1px solid rgba(255,255,255,.22);
+  border-radius:999px;
+  height:12px;
+  overflow:hidden;
+}
+.bar{
+  width:0%;
+  height:100%;
+  background:#fff;
+  opacity:.95;
+  border-radius:999px;
+  transition: width .35s ease;
+}
+
+.section{
+  margin-top:16px;
+  padding-top:14px;
+  border-top:1px solid rgba(255,255,255,.22);
+}
+.section h4{
+  margin:0 0 10px;
+  font-size:14.5px;
+  letter-spacing:.2px;
+  opacity:.95;
+}
+
+.expList{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.expItem{
+  background: rgba(255,255,255,.14);
+  border:1px solid rgba(255,255,255,.20);
+  border-radius:12px;
+  padding:10px 12px;
+}
+.expHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:6px;
+}
+.expTitle{font-weight:800;}
+.impact{
+  font-size:12px;
+  padding:5px 10px;
+  border-radius:999px;
+  background: rgba(0,0,0,.18);
+  border:1px solid rgba(255,255,255,.20);
+  white-space:nowrap;
+}
+.detail{font-size:13px;opacity:.95;line-height:1.35;}
+
+.recs{
+  margin:0;
+  padding-left:18px;
+  font-size:13px;
+  line-height:1.45;
+  opacity:.95;
+}
+.note{
+  font-size:12px;
+  opacity:.85;
+  margin-top:10px;
+  line-height:1.35;
+}
+
+.error{
+  display:none;
+  margin-top:12px;
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px solid rgba(240,80,80,.35);
+  background: rgba(240,80,80,.08);
+  color:#b00020;
+  font-weight:650;
+}
+
+.footer{
+  text-align:center;
+  font-size:12px;
+  color:var(--muted);
+  margin:22px 0 6px;
+}
+</style>
+</head>
+
+<body>
+  <div class="header">
+    <h1>AI Credit Scoring System</h1>
+    <p>Chấm điểm tín dụng doanh nghiệp SME – Thương mại điện tử</p>
+  </div>
+
+  <div class="container">
+    <div class="grid">
+      <!-- INPUT -->
+      <div class="card">
+        <h3> Thông tin doanh nghiệp <span class="badge"></span></h3>
+
+        <div class="form-grid">
+          <div class="field">
+            <label>Doanh thu TB / tháng</label>
+            <input id="monthly_revenue" type="number" placeholder="VD: 60000" />
+            <div class="help">Tổng doanh thu trung bình theo tháng (đơn vị tuỳ bạn, miễn nhất quán).</div>
+          </div>
+
+          <div class="field">
+            <label>Biến động dòng tiền (0–1)</label>
+            <input id="cashflow_volatility" type="number" step="0.01" placeholder="VD: 0.45" />
+            <div class="help">0 = rất ổn định, 1 = biến động mạnh.</div>
+          </div>
+
+          <div class="field">
+            <label>Số đơn hàng 30 ngày</label>
+            <input id="order_volume_30d" type="number" placeholder="VD: 900" />
+            <div class="help">Số đơn trong 30 ngày gần nhất.</div>
+          </div>
+
+          <div class="field">
+            <label>Rating sàn TMĐT (1–5)</label>
+            <input id="platform_rating" type="number" step="0.1" placeholder="VD: 4.1" />
+            <div class="help">Điểm đánh giá trung bình của shop trên sàn.</div>
+          </div>
+
+          <div class="field">
+            <label>Tỷ lệ hoàn đơn (%)</label>
+            <input id="refund_rate" type="number" step="0.1" placeholder="VD: 8.5" />
+            <div class="help">Tỷ lệ hoàn trong tháng (0–100%).</div>
+          </div>
+
+          <div class="field">
+            <label>Số năm hoạt động</label>
+            <input id="years_in_business" type="number" step="0.1" placeholder="VD: 2" />
+            <div class="help">Số năm doanh nghiệp hoạt động.</div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="btnScore" onclick="score()"> Chấm điểm tín dụng</button>
+          <button class="secondary" onclick="fillSample()">Điền mẫu</button>
+        </div>
+
+        <div id="errorBox" class="error"></div>
+      </div>
+
+      <!-- RESULT -->
+      <div>
+        <div id="result" class="result">
+          <div class="scoreRow">
+            <div>
+              <div class="score" id="scoreValue">—</div>
+              <div class="sub" id="metaValue">—</div>
+            </div>
+            <div class="tierPill" id="tierValue">—</div>
+          </div>
+
+          <div class="barWrap">
+            <div class="bar" id="scoreBar"></div>
+          </div>
+
+          <div class="section">
+            <h4>Tóm tắt</h4>
+            <div class="detail" id="summaryValue">—</div>
+          </div>
+
+          <div class="section">
+            <h4>AI giải thích chi tiết (từng yếu tố)</h4>
+            <div class="expList" id="expList"></div>
+          </div>
+
+          <div class="section">
+            <h4>Khuyến nghị cải thiện</h4>
+            <ul class="recs" id="recList"></ul>
+            <div class="note">
+              * Điểm số phản ánh mức độ rủi ro tổng hợp, không phải kết luận vỡ nợ.
+            </div>
+          </div>
+        </div>
+
+        <div class="footer">© AI Credit Scoring Demo – SMEs E-commerce</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+function setError(msg){
+  const box = document.getElementById("errorBox");
+  if(!msg){
+    box.style.display = "none";
+    box.innerText = "";
+    return;
+  }
+  box.style.display = "block";
+  box.innerText = msg;
+}
+
+function fillSample(){
+  monthly_revenue.value = 60000;
+  order_volume_30d.value = 900;
+  refund_rate.value = 8.5;
+  cashflow_volatility.value = 0.45;
+  platform_rating.value = 4.1;
+  years_in_business.value = 2;
+  setError("");
+}
+
+function impactLabel(impact){
+  if(impact === "Tích cực") return "Tích cực ✅";
+  if(impact === "Tiêu cực") return "Tiêu cực ⚠️";
+  return "Trung tính •";
+}
+
+async function score(){
+  setError("");
+  const btn = document.getElementById("btnScore");
+  btn.disabled = true;
+  btn.innerText = "⏳ Đang chấm điểm...";
+
+  const payload = {
+    monthly_revenue: monthly_revenue.value,
+    order_volume_30d: order_volume_30d.value,
+    refund_rate: refund_rate.value,
+    cashflow_volatility: cashflow_volatility.value,
+    platform_rating: platform_rating.value,
+    years_in_business: years_in_business.value
+  };
+
+  try{
+    const res = await fetch("/score", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)
+    });
+
+    if(!res.ok){
+      const text = await res.text();
+      throw new Error(text || "Server error");
+    }
+
+    const data = await res.json();
+
+    document.getElementById("result").style.display = "block";
+
+    document.getElementById("scoreValue").innerText =
+      `Credit Score: ${data.credit_score} / 100`;
+
+    document.getElementById("tierValue").innerText =
+      `Xếp hạng: ${data.tier}`;
+
+    const meta = [];
+    meta.push(`PD (RF): ${data.risk_prob_rf}`);
+    if(data.risk_prob_logit !== null && data.risk_prob_logit !== undefined){
+      meta.push(`PD (Logit): ${data.risk_prob_logit}`);
+    }
+    meta.push(`Mode: ${data.model_source}`);
+    document.getElementById("metaValue").innerText = meta.join("  •  ");
+
+    document.getElementById("summaryValue").innerText = data.summary || "—";
+
+    // progress bar
+    const w = Math.max(0, Math.min(100, Number(data.credit_score || 0)));
+    document.getElementById("scoreBar").style.width = w + "%";
+
+    // explanations
+    const expWrap = document.getElementById("expList");
+    expWrap.innerHTML = "";
+    (data.explanations || []).forEach(e => {
+      const div = document.createElement("div");
+      div.className = "expItem";
+      div.innerHTML = `
+        <div class="expHead">
+          <div class="expTitle">${e.title}</div>
+          <div class="impact">${impactLabel(e.impact)}</div>
+        </div>
+        <div class="detail">${e.detail}</div>
+      `;
+      expWrap.appendChild(div);
+    });
+
+    // recommendations
+    const rec = document.getElementById("recList");
+    rec.innerHTML = "";
+    (data.recommendations || []).forEach(r => {
+      const li = document.createElement("li");
+      li.innerText = r;
+      rec.appendChild(li);
+    });
+
+  }catch(err){
+    setError("Không lấy được kết quả. Kiểm tra terminal Flask hoặc thử chạy lại. Chi tiết: " + err.message);
+  }finally{
+    btn.disabled = false;
+    btn.innerText = " Chấm điểm tín dụng";
+  }
+}
+</script>
+
+</body>
+</html>
