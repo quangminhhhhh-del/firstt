@@ -82,7 +82,7 @@ body{
 .field{display:flex;flex-direction:column;gap:7px;}
 label{font-weight:650;}
 .help{font-size:12px;color:var(--muted);line-height:1.35;}
-input{
+input, select{
   padding:12px 12px;
   border-radius:10px;
   border:1px solid var(--stroke);
@@ -91,7 +91,7 @@ input{
   transition: border .15s, box-shadow .15s;
   background:#fff;
 }
-input:focus{
+input:focus, select:focus{
   border-color: rgba(58,110,232,.65);
   box-shadow: 0 0 0 4px rgba(58,110,232,.12);
 }
@@ -287,6 +287,74 @@ button:disabled{opacity:.7;cursor:not-allowed;}
             <input id="years_in_business" type="number" step="0.1" placeholder="VD: 2" />
             <div class="help">Số năm doanh nghiệp hoạt động.</div>
           </div>
+
+          <!-- ====== NEW: thêm chỉ số nghiệp vụ tín dụng ====== -->
+          <div class="field">
+            <label>Biên lợi nhuận ròng (%)</label>
+            <input id="net_profit_margin" type="number" step="0.1" placeholder="VD: 6.5" />
+            <div class="help">Lợi nhuận ròng / doanh thu. (âm nghĩa là đang lỗ).</div>
+          </div>
+
+          <div class="field">
+            <label>Dư nợ / Doanh thu tháng (lần)</label>
+            <input id="debt_to_revenue" type="number" step="0.01" placeholder="VD: 1.2" />
+            <div class="help">Ví dụ 1.2 = dư nợ xấp xỉ 1.2 lần doanh thu tháng.</div>
+          </div>
+
+          <div class="field">
+            <label>Trả nợ/tháng so với doanh thu (%)</label>
+            <input id="monthly_debt_payment_ratio" type="number" step="0.1" placeholder="VD: 18" />
+            <div class="help">Nghĩa vụ trả nợ mỗi tháng / doanh thu tháng.</div>
+          </div>
+
+          <div class="field">
+            <label>Tỷ lệ trễ hạn (%)</label>
+            <input id="late_payment_rate" type="number" step="0.1" placeholder="VD: 3" />
+            <div class="help">Tỷ lệ kỳ trả nợ bị trễ (ước lượng/ghi nhận).</div>
+          </div>
+
+          <div class="field">
+            <label>Dự phòng tiền mặt (tháng)</label>
+            <input id="cash_buffer_months" type="number" step="0.1" placeholder="VD: 2.5" />
+            <div class="help">Số tháng có thể duy trì nếu doanh thu giảm (buffer).</div>
+          </div>
+
+          <div class="field">
+            <label>Tập trung doanh thu Top-1 (%)</label>
+            <input id="customer_concentration" type="number" step="1" placeholder="VD: 45" />
+            <div class="help">% doanh thu đến từ 1 kênh/khách hàng lớn nhất.</div>
+          </div>
+
+          <div class="field">
+            <label>Vòng quay tồn kho (vòng/tháng)</label>
+            <input id="inventory_turnover" type="number" step="0.1" placeholder="VD: 2.0" />
+            <div class="help">Vòng quay thấp → dễ kẹt vốn.</div>
+          </div>
+
+          <div class="field">
+            <label>Tuân thủ thuế/hóa đơn</label>
+            <select id="tax_compliance">
+              <option value="unknown" selected>Chưa cung cấp</option>
+              <option value="yes">Có</option>
+              <option value="no">Không</option>
+            </select>
+            <div class="help">Dùng để tăng độ tin cậy thẩm định (demo).</div>
+          </div>
+
+          <div class="field">
+            <label>Ngành hàng</label>
+            <select id="business_sector">
+              <option value="unknown" selected>Chưa chọn</option>
+              <option value="FMCG">FMCG / Tiêu dùng nhanh</option>
+              <option value="Fashion">Thời trang</option>
+              <option value="Electronics">Điện tử</option>
+              <option value="Beauty">Mỹ phẩm</option>
+              <option value="Home">Gia dụng</option>
+              <option value="Other">Khác</option>
+            </select>
+            <div class="help">Dùng để tham chiếu rủi ro theo ngành (demo).</div>
+          </div>
+          <!-- ====== END NEW ====== -->
         </div>
 
         <div class="actions">
@@ -362,6 +430,19 @@ function fillSample(){
   $("cashflow_volatility").value = 0.45;
   $("platform_rating").value = 4.1;
   $("years_in_business").value = 2;
+
+  // ====== NEW: sample cho chỉ số nghiệp vụ ======
+  $("net_profit_margin").value = 6.5;
+  $("debt_to_revenue").value = 1.2;
+  $("monthly_debt_payment_ratio").value = 18;
+  $("late_payment_rate").value = 3;
+  $("cash_buffer_months").value = 2.5;
+  $("customer_concentration").value = 45;
+  $("inventory_turnover").value = 2.0;
+  $("tax_compliance").value = "yes";
+  $("business_sector").value = "FMCG";
+  // ====== END NEW ======
+
   setError("");
 }
 
@@ -377,6 +458,13 @@ function toNumber(val){
   if(s === "") return null;
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
+}
+
+// ====== NEW: đọc chuỗi (select) ======
+function toText(val){
+  if(val === null || val === undefined) return null;
+  const s = String(val).trim();
+  return s === "" ? null : s;
 }
 
 function formatNum(x){
@@ -491,10 +579,22 @@ async function score(){
     refund_rate: toNumber($("refund_rate").value),
     cashflow_volatility: toNumber($("cashflow_volatility").value),
     platform_rating: toNumber($("platform_rating").value),
-    years_in_business: toNumber($("years_in_business").value)
+    years_in_business: toNumber($("years_in_business").value),
+
+    // ====== NEW: thêm payload nghiệp vụ ======
+    net_profit_margin: toNumber($("net_profit_margin").value),
+    debt_to_revenue: toNumber($("debt_to_revenue").value),
+    monthly_debt_payment_ratio: toNumber($("monthly_debt_payment_ratio").value),
+    late_payment_rate: toNumber($("late_payment_rate").value),
+    cash_buffer_months: toNumber($("cash_buffer_months").value),
+    customer_concentration: toNumber($("customer_concentration").value),
+    inventory_turnover: toNumber($("inventory_turnover").value),
+    tax_compliance: toText($("tax_compliance").value),
+    business_sector: toText($("business_sector").value)
+    // ====== END NEW ======
   };
 
-  const hasAny = Object.values(payload).some(v => v !== null);
+  const hasAny = Object.values(payload).some(v => v !== null && v !== "" && v !== undefined);
   if(!hasAny){
     setError("Bạn chưa nhập dữ liệu. Hãy điền mẫu hoặc nhập tối thiểu 1 chỉ số.");
     btn.disabled = false;

@@ -127,7 +127,7 @@ def fallback_risk_estimate(d: dict) -> float:
     """
     Ước lượng rủi ro baseline (0..1) theo nghiệp vụ.
     Mục tiêu:
-      - Trả kết quả ổn định và "hợp lý nghiệp vụ" với 6 chỉ số đầu vào.
+      - Trả kết quả ổn định và "hợp lý nghiệp vụ" với các chỉ số đầu vào.
       - Dùng làm nền để hiệu chỉnh kết quả ML (RF) khi ML bị lệch do thiếu feature.
     """
     rev = d["monthly_revenue"]
@@ -137,6 +137,17 @@ def fallback_risk_estimate(d: dict) -> float:
     rating = d["platform_rating"]
     years = d["years_in_business"]
 
+    # ====== NEW: thêm chỉ số nghiệp vụ tín dụng ======
+    net_margin = d.get("net_profit_margin", 0.0)                 # %
+    debt_to_revenue = d.get("debt_to_revenue", 0.0)              # ratio (0..5)
+    monthly_debt_payment_ratio = d.get("monthly_debt_payment_ratio", 0.0)  # % doanh thu (0..100)
+    late_payment_rate = d.get("late_payment_rate", 0.0)          # %
+    cash_buffer_months = d.get("cash_buffer_months", 0.0)        # số tháng dự phòng (0..24)
+    customer_concentration = d.get("customer_concentration", 0.0) # % (0..100)
+    inventory_turnover = d.get("inventory_turnover", 0.0)        # vòng / tháng (0..50)
+    tax_compliance = d.get("tax_compliance", "unknown")          # yes/no/unknown
+    business_sector = d.get("business_sector", "unknown")        # text (để giải thích / không ép)
+
     # Các thang này chỉ là "demo-scale": giữ nhất quán với UI
     rev_score = 1 - _clamp(rev / 120000, 0, 1)           # doanh thu càng cao rủi ro càng giảm
     order_score = 1 - _clamp(orders / 2500, 0, 1)        # số đơn càng cao rủi ro càng giảm
@@ -145,16 +156,52 @@ def fallback_risk_estimate(d: dict) -> float:
     rating_score = _clamp((4.6 - rating) / 3.0, 0, 1)    # rating thấp => rủi ro tăng
     age_score = _clamp((3 - years) / 3.0, 0, 1)          # hoạt động <3 năm => rủi ro tăng
 
-    # Trọng số nghiệp vụ (ưu tiên hoàn đơn & biến động dòng tiền)
+    # ====== NEW: chuẩn hoá điểm rủi ro cho chỉ số mới ======
+    # Net profit margin: <0% rất xấu; 0-5% yếu; 10%+ tốt
+    # score = 1 (xấu) -> 0 (tốt)
+    margin_score = _clamp((8 - net_margin) / 12.0, 0, 1)  # ~ net_margin >= 8% => tốt
+
+    # Debt to revenue (dư nợ / doanh thu tháng): >2 lần là rủi ro cao
+    debt_score = _clamp(debt_to_revenue / 2.0, 0, 1)
+
+    # Monthly debt payment ratio: (trả nợ/tháng) / doanh thu: >35% căng
+    pay_score = _clamp(monthly_debt_payment_ratio / 35.0, 0, 1)
+
+    # Late payment rate: >10% bắt đầu xấu, >25% rất xấu
+    late_score = _clamp(late_payment_rate / 25.0, 0, 1)
+
+    # Cash buffer months: 0 tháng xấu; >=3 tháng là tốt dần; >=6 rất tốt
+    buffer_score = 1 - _clamp(cash_buffer_months / 6.0, 0, 1)
+
+    # Customer concentration: top1 >60% là rủi ro tập trung
+    conc_score = _clamp((customer_concentration - 20.0) / 60.0, 0, 1)
+
+    # Inventory turnover: <1 vòng/tháng rủi ro tồn kho; >=3 tốt
+    inv_score = _clamp((2.5 - inventory_turnover) / 2.5, 0, 1)
+
+    # Tax compliance: nếu "no" tăng rủi ro nhẹ; "unknown" tăng rất nhẹ
+    tax_penalty = 0.10 if tax_compliance == "no" else (0.04 if tax_compliance == "unknown" else 0.0)
+
+    # Trọng số nghiệp vụ (ưu tiên hoàn đơn & biến động dòng tiền + khả năng trả nợ)
     risk = (
-        0.20 * rev_score +
-        0.14 * order_score +
-        0.26 * refund_score +
-        0.22 * vol_score +
-        0.10 * rating_score +
-        0.08 * age_score
+        0.16 * rev_score +
+        0.10 * order_score +
+        0.20 * refund_score +
+        0.18 * vol_score +
+        0.08 * rating_score +
+        0.06 * age_score +
+        # NEW weights
+        0.10 * margin_score +
+        0.07 * debt_score +
+        0.08 * pay_score +
+        0.06 * late_score +
+        0.06 * buffer_score +
+        0.03 * conc_score +
+        0.02 * inv_score
     )
-    return float(_clamp(risk, 0.02, 0.98))
+
+    risk = float(_clamp(risk + tax_penalty, 0.02, 0.98))
+    return risk
 
 
 def choose_final_risk(
@@ -239,30 +286,50 @@ def policy_recommendation(score: float, d: dict) -> dict:
     """
     rev = float(d["monthly_revenue"])
 
+    # ====== NEW: thêm điều chỉnh hạn mức theo khả năng trả nợ / buffer / dư nợ ======
+    net_margin = float(d.get("net_profit_margin", 0.0))
+    debt_to_revenue = float(d.get("debt_to_revenue", 0.0))
+    monthly_pay_ratio = float(d.get("monthly_debt_payment_ratio", 0.0))
+    buffer_months = float(d.get("cash_buffer_months", 0.0))
+    late_rate = float(d.get("late_payment_rate", 0.0))
+
+    # hệ số điều chỉnh (nhẹ) để không làm “nhảy” kết quả
+    adj = 1.0
+    if net_margin < 2:
+        adj *= 0.90
+    if debt_to_revenue > 1.5:
+        adj *= 0.90
+    if monthly_pay_ratio > 30:
+        adj *= 0.88
+    if buffer_months >= 3:
+        adj *= 1.05
+    if late_rate > 10:
+        adj *= 0.92
+
     if score >= 70:
         decision = "NÊN PHÊ DUYỆT (rủi ro thấp)"
-        limit = rev * 1.2
+        limit = rev * 1.2 * adj
         conditions = [
             "Ưu tiên đối soát doanh thu sàn 3 tháng gần nhất.",
             "Theo dõi biến động dòng tiền/hoàn đơn theo tuần."
         ]
     elif score >= 50:
         decision = "CẦN THẨM ĐỊNH THÊM (rủi ro trung bình)"
-        limit = rev * 0.7
+        limit = rev * 0.7 * adj
         conditions = [
             "Yêu cầu sao kê/đối soát sàn 3–6 tháng.",
             "Giới hạn hạn mức ban đầu; tăng dần nếu hoàn đơn & dòng tiền ổn định."
         ]
     elif score >= 35:
         decision = "THẨM ĐỊNH CHẶT (rủi ro cao)"
-        limit = rev * 0.5
+        limit = rev * 0.5 * adj
         conditions = [
             "Kiểm tra kỹ hoàn đơn, khiếu nại, và dòng tiền 6 tháng.",
             "Áp điều kiện kiểm soát (giữ lại một phần doanh thu/đối soát chặt)."
         ]
     else:
         decision = "KHÔNG KHUYẾN NGHỊ (rủi ro rất cao)"
-        limit = rev * 0.3
+        limit = rev * 0.3 * adj
         conditions = [
             "Chỉ cân nhắc nếu có tài sản/đảm bảo hoặc đối tác bảo lãnh.",
             "Yêu cầu dữ liệu tài chính đầy đủ trước khi xem xét lại."
@@ -285,6 +352,17 @@ def explain_ai(d: dict, credit_score: float, risk_final: float, model_source: st
     vol = d["cashflow_volatility"]
     rating = d["platform_rating"]
     years = d["years_in_business"]
+
+    # ====== NEW: thêm các chỉ số nghiệp vụ để giải thích ======
+    net_margin = float(d.get("net_profit_margin", 0.0))
+    debt_to_revenue = float(d.get("debt_to_revenue", 0.0))
+    monthly_pay_ratio = float(d.get("monthly_debt_payment_ratio", 0.0))
+    late_rate = float(d.get("late_payment_rate", 0.0))
+    buffer_months = float(d.get("cash_buffer_months", 0.0))
+    conc = float(d.get("customer_concentration", 0.0))
+    inv_turn = float(d.get("inventory_turnover", 0.0))
+    tax_compliance = str(d.get("tax_compliance", "unknown"))
+    business_sector = str(d.get("business_sector", "unknown"))
 
     # 1) Revenue
     if rev < 30000:
@@ -361,6 +439,106 @@ def explain_ai(d: dict, credit_score: float, risk_final: float, model_source: st
         exps.append({"title": "Thời gian hoạt động", "impact": "Tích cực",
                      "detail": f"Hoạt động {years:.1f} năm → độ bền tốt, giảm rủi ro 'mở ra đóng vào'."})
 
+    # ====== NEW: 7) Net profit margin ======
+    if net_margin < 0:
+        exps.append({"title": "Biên lợi nhuận ròng", "impact": "Tiêu cực",
+                     "detail": f"Biên LN ròng {net_margin:.1f}% (âm) → kinh doanh lỗ, rủi ro trả nợ cao."})
+        recs.append("Rà soát giá vốn/chi phí marketing; ưu tiên sản phẩm biên lợi nhuận tốt.")
+    elif net_margin < 3:
+        exps.append({"title": "Biên lợi nhuận ròng", "impact": "Trung tính",
+                     "detail": f"Biên LN ròng {net_margin:.1f}% thấp → dễ bị ăn mòn lợi nhuận khi hoàn đơn/chi phí tăng."})
+        recs.append("Tối ưu phí sàn/ship/ads; tăng AOV hoặc tăng giá trị đơn hàng.")
+    else:
+        exps.append({"title": "Biên lợi nhuận ròng", "impact": "Tích cực",
+                     "detail": f"Biên LN ròng {net_margin:.1f}% tốt → tăng sức chịu đựng biến động và khả năng trả nợ."})
+
+    # ====== NEW: 8) Debt & payment burden ======
+    if debt_to_revenue > 2.0:
+        exps.append({"title": "Dư nợ / Doanh thu tháng", "impact": "Tiêu cực",
+                     "detail": f"Tỷ lệ {debt_to_revenue:.2f}x cao → đòn bẩy lớn, dễ căng dòng tiền khi giảm bán."})
+        recs.append("Giảm đòn bẩy: cơ cấu nợ, kéo dài kỳ hạn, giảm chi phí cố định.")
+    elif debt_to_revenue > 1.0:
+        exps.append({"title": "Dư nợ / Doanh thu tháng", "impact": "Trung tính",
+                     "detail": f"Tỷ lệ {debt_to_revenue:.2f}x trung bình → cần kiểm soát nghĩa vụ trả nợ theo chu kỳ bán."})
+    else:
+        exps.append({"title": "Dư nợ / Doanh thu tháng", "impact": "Tích cực",
+                     "detail": f"Tỷ lệ {debt_to_revenue:.2f}x thấp → cấu trúc vốn an toàn hơn."})
+
+    if monthly_pay_ratio > 35:
+        exps.append({"title": "Gánh trả nợ / Doanh thu", "impact": "Tiêu cực",
+                     "detail": f"{monthly_pay_ratio:.1f}% cao → áp lực trả nợ lớn, dễ trễ hạn khi doanh thu giảm."})
+        recs.append("Ưu tiên cơ cấu trả nợ, giảm tỷ lệ trả nợ/tháng, tăng buffer tiền mặt.")
+    elif monthly_pay_ratio > 20:
+        exps.append({"title": "Gánh trả nợ / Doanh thu", "impact": "Trung tính",
+                     "detail": f"{monthly_pay_ratio:.1f}% cần theo dõi → nên giữ dòng tiền đều để tránh dồn nợ."})
+    else:
+        exps.append({"title": "Gánh trả nợ / Doanh thu", "impact": "Tích cực",
+                     "detail": f"{monthly_pay_ratio:.1f}% thấp → dư địa dòng tiền tốt hơn."})
+
+    # ====== NEW: 9) Late payment ======
+    if late_rate > 15:
+        exps.append({"title": "Tỷ lệ trễ hạn", "impact": "Tiêu cực",
+                     "detail": f"Trễ hạn {late_rate:.1f}% cao → dấu hiệu kỷ luật tín dụng yếu/áp lực dòng tiền."})
+        recs.append("Thiết lập lịch trả nợ tự động; kiểm soát chi tiêu; ưu tiên trả nợ đúng hạn.")
+    elif late_rate > 5:
+        exps.append({"title": "Tỷ lệ trễ hạn", "impact": "Trung tính",
+                     "detail": f"Trễ hạn {late_rate:.1f}% → cần theo dõi 1–2 chu kỳ để đánh giá xu hướng."})
+    else:
+        exps.append({"title": "Tỷ lệ trễ hạn", "impact": "Tích cực",
+                     "detail": f"Trễ hạn {late_rate:.1f}% thấp → lịch sử thanh toán tốt hơn."})
+
+    # ====== NEW: 10) Cash buffer months ======
+    if buffer_months < 0.5:
+        exps.append({"title": "Dự phòng tiền mặt", "impact": "Tiêu cực",
+                     "detail": f"Buffer {buffer_months:.1f} tháng thấp → dễ hụt vốn khi hoàn đơn/đứt dòng tiền."})
+        recs.append("Tăng dự phòng: giữ lại % doanh thu, giảm tồn kho chậm quay, hạn chế chi phí cố định.")
+    elif buffer_months < 2:
+        exps.append({"title": "Dự phòng tiền mặt", "impact": "Trung tính",
+                     "detail": f"Buffer {buffer_months:.1f} tháng → tạm ổn, nên nâng lên ~3 tháng để an toàn."})
+    else:
+        exps.append({"title": "Dự phòng tiền mặt", "impact": "Tích cực",
+                     "detail": f"Buffer {buffer_months:.1f} tháng tốt → giảm rủi ro thanh khoản."})
+
+    # ====== NEW: 11) Concentration ======
+    if conc > 60:
+        exps.append({"title": "Tập trung doanh thu", "impact": "Tiêu cực",
+                     "detail": f"Top-1 chiếm {conc:.0f}% → rủi ro tập trung cao (mất nguồn bán sẽ ảnh hưởng mạnh)."})
+        recs.append("Giảm tập trung: mở thêm kênh bán, tăng khách hàng lặp lại, đa dạng sản phẩm.")
+    elif conc > 35:
+        exps.append({"title": "Tập trung doanh thu", "impact": "Trung tính",
+                     "detail": f"Top-1 chiếm {conc:.0f}% → cần đa dạng kênh/khách để giảm sốc doanh thu."})
+    else:
+        exps.append({"title": "Tập trung doanh thu", "impact": "Tích cực",
+                     "detail": f"Top-1 chiếm {conc:.0f}% thấp → doanh thu phân tán, ổn định hơn."})
+
+    # ====== NEW: 12) Inventory turnover ======
+    if inv_turn < 1:
+        exps.append({"title": "Vòng quay tồn kho", "impact": "Tiêu cực",
+                     "detail": f"{inv_turn:.1f} vòng/tháng thấp → tồn kho chậm, rủi ro kẹt vốn và lỗi mốt."})
+        recs.append("Tối ưu tồn kho: giảm SKU chậm bán, xả hàng tồn, cải thiện forecast.")
+    elif inv_turn < 2.5:
+        exps.append({"title": "Vòng quay tồn kho", "impact": "Trung tính",
+                     "detail": f"{inv_turn:.1f} vòng/tháng → cần cải thiện để giảm vốn nằm trong kho."})
+    else:
+        exps.append({"title": "Vòng quay tồn kho", "impact": "Tích cực",
+                     "detail": f"{inv_turn:.1f} vòng/tháng tốt → giảm rủi ro thanh khoản."})
+
+    # ====== NEW: 13) Compliance & sector (giải thích nhẹ) ======
+    if tax_compliance == "no":
+        exps.append({"title": "Tuân thủ thuế", "impact": "Tiêu cực",
+                     "detail": "Chưa tuân thủ thuế/hoá đơn đầy đủ → rủi ro pháp lý & khó thẩm định doanh thu."})
+        recs.append("Bổ sung hồ sơ thuế/hoá đơn, đối soát sàn đầy đủ để tăng độ tin cậy.")
+    elif tax_compliance == "unknown":
+        exps.append({"title": "Tuân thủ thuế", "impact": "Trung tính",
+                     "detail": "Chưa cung cấp thông tin tuân thủ thuế → nên bổ sung để nâng độ tin cậy thẩm định."})
+    else:
+        exps.append({"title": "Tuân thủ thuế", "impact": "Tích cực",
+                     "detail": "Tuân thủ thuế tốt → hỗ trợ thẩm định và giảm rủi ro pháp lý."})
+
+    if business_sector and business_sector != "unknown":
+        exps.append({"title": "Ngành hàng", "impact": "Trung tính",
+                     "detail": f"Ngành: {business_sector}. (Dùng để tham chiếu vì rủi ro theo ngành có thể khác nhau)."})
+
     # Summary theo NGHIỆP VỤ: bám credit_score (không dùng mỗi 'đếm tiêu cực' nữa)
     if credit_score >= 70:
         summary = "Rủi ro thấp: có thể phê duyệt hạn mức phù hợp, ưu tiên kiểm soát biến động dòng tiền và duy trì tỷ lệ hoàn thấp."
@@ -377,10 +555,10 @@ def explain_ai(d: dict, credit_score: float, risk_final: float, model_source: st
     summary += f"\n(Độ tin cậy: {confidence})"
 
     recs = list(dict.fromkeys(recs))
-    return exps[:7], recs[:5], summary
+    return exps[:12], recs[:6], summary
 
 
-# ===================== ROUTES =====================
+#  ROUTES 
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -399,7 +577,26 @@ def score_api():
             "cashflow_volatility": _clamp(_to_float(payload.get("cashflow_volatility"), 0.3), 0, 1),
             "platform_rating": _clamp(_to_float(payload.get("platform_rating"), 4.0), 1, 5),
             "years_in_business": _clamp(_to_float(payload.get("years_in_business"), 0), 0, 100),
+
+            # ====== NEW: thêm các chỉ số nghiệp vụ tín dụng ======
+            # Lưu ý: Những field này KHÔNG bắt buộc nằm trong ML feature_columns.
+            # Nếu model không dùng thì vẫn dùng để baseline + giải thích.
+            "net_profit_margin": _clamp(_to_float(payload.get("net_profit_margin"), 0.0), -100, 100),               # %
+            "debt_to_revenue": _clamp(_to_float(payload.get("debt_to_revenue"), 0.0), 0, 10),                        # ratio
+            "monthly_debt_payment_ratio": _clamp(_to_float(payload.get("monthly_debt_payment_ratio"), 0.0), 0, 200), # %
+            "late_payment_rate": _clamp(_to_float(payload.get("late_payment_rate"), 0.0), 0, 100),                   # %
+            "cash_buffer_months": _clamp(_to_float(payload.get("cash_buffer_months"), 0.0), 0, 24),                  # months
+            "customer_concentration": _clamp(_to_float(payload.get("customer_concentration"), 0.0), 0, 100),         # %
+            "inventory_turnover": _clamp(_to_float(payload.get("inventory_turnover"), 0.0), 0, 50),                  # turns/month
+            "tax_compliance": str(payload.get("tax_compliance") or "unknown").strip().lower(),                       # yes/no/unknown
+            "business_sector": str(payload.get("business_sector") or "unknown").strip(),                              # text
         }
+
+        # ====== NEW: normalize categorical ======
+        if data["tax_compliance"] not in {"yes", "no", "unknown"}:
+            data["tax_compliance"] = "unknown"
+        if data["business_sector"] == "":
+            data["business_sector"] = "unknown"
 
         df = build_feature_df(data)
 
