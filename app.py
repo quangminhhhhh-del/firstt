@@ -8,11 +8,43 @@ import numpy as np
 
 app = Flask(__name__)
 CORS(app)
+import hashlib
 
+def sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def load_expected_hashes(path: str) -> dict:
+    hashes = {}
+    if not os.path.exists(path):
+        return hashes
+    with open(path, "r") as f:
+        for line in f:
+            if ":" in line:
+                k, v = line.strip().split(":", 1)
+                hashes[k.strip()] = v.strip()
+    return hashes
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ===================== MODEL INTEGRITY CHECK =====================
+EXPECTED_HASHES = load_expected_hashes(
+    os.path.join(BASE_DIR, "model_hashes.txt")
+)
 
+for fname, expected_hash in EXPECTED_HASHES.items():
+    fpath = os.path.join(BASE_DIR, fname)
+    if not os.path.exists(fpath):
+        raise RuntimeError(f"Security error: missing model file {fname}")
 
-# ===================== SAFE LOAD MODELS =====================
+    actual_hash = sha256_file(fpath)
+    if actual_hash != expected_hash:
+        raise RuntimeError(
+            f"Security error: integrity check failed for {fname}"
+        )
+
+#  SAFE LOAD MODELS 
 MODEL_LOAD_ERRORS: list[str] = []
 
 def _p(filename: str) -> str:
